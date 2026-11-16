@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+    <title>Font Photo AR</title>
+    <meta name="description" content="Webブラウザ上で、好きな文字をフォントと色を選んでAR空間に配置し、写真が撮れるアプリ">
+
+    <!-- Versions pinned exactly (not "@1") so jsdelivr never needs to re-resolve against the
+         npm registry at runtime -- it can serve these cached files even if the package is ever
+         unpublished or the @8thwall npm account disappears. -->
+    <script src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1.0.0/dist/xr.js" async crossorigin="anonymous" data-preload-chunks="slam"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1.0.0/dist/xrextras.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@8thwall/landing-page@1.0.0/dist/landing-page.js" crossorigin="anonymous"></script>
+
+    <link rel="stylesheet" href="src/index.css">
+  </head>
+  <body>
+    <!-- The main canvas used for drawing by the app; also the source frame captured as a photo. -->
+    <canvas id="camerafeed"></canvas>
+
+    <button id="gallery-open" type="button" aria-label="ギャラリーを開く">
+      🖼️<span id="gallery-count" class="badge" hidden>0</span>
+    </button>
+
+    <div id="ui">
+      <p id="instructions">文字を入力し、フォント・色・サイズを選んで地面をタップすると設置されます(設置済みの文字をタップすると選択できます)</p>
+
+      <div id="placement-panel">
+        <div id="controls">
+          <input id="text-input" type="text" maxlength="10" value="AR" placeholder="表示する文字">
+        </div>
+
+        <div id="font-row" class="chip-row" role="group" aria-label="フォントを選択"></div>
+        <div id="color-row" class="chip-row" role="group" aria-label="カラーを選択"></div>
+        <div id="size-row" class="chip-row" role="group" aria-label="サイズを選択"></div>
+
+        <div id="shutter-row">
+          <button id="shutter" type="button" aria-label="写真を撮る"></button>
+        </div>
+      </div>
+
+      <div id="selection-panel" hidden>
+        <div id="selection-size-row">
+          <span>サイズ</span>
+          <input id="selection-size" type="range" min="0.5" max="2.5" step="0.05" value="1" aria-label="選択中の文字のサイズ">
+        </div>
+        <div id="selection-actions">
+          <button id="selection-delete" type="button" class="panel-button panel-button-danger">この文字を削除</button>
+          <button id="selection-done" type="button" class="panel-button">完了</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="gallery-overlay" hidden>
+      <div id="gallery-header">
+        <span>撮った写真 (<span id="gallery-overlay-count">0</span>)</span>
+        <button id="gallery-close" type="button" aria-label="閉じる">✕</button>
+      </div>
+      <p id="gallery-empty">まだ写真がありません。シャッターボタンで撮影してみましょう。</p>
+      <div id="gallery-grid"></div>
+    </div>
+
+    <div id="photo-viewer" hidden>
+      <img id="photo-viewer-img" alt="撮影した写真">
+      <div id="photo-viewer-actions">
+        <a id="photo-download" class="viewer-button" download="font-photo-ar.jpg">保存</a>
+        <button id="photo-delete" type="button" class="viewer-button">削除</button>
+        <button id="photo-viewer-close" type="button" class="viewer-button">閉じる</button>
+      </div>
+    </div>
+
+    <div id="flash"></div>
+
+    <script type="module" src="src/app.js"></script>
+  </body>
+</html>
