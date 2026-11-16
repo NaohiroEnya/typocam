@@ -23,7 +23,7 @@ const pickMimeType = () => {
   return MIME_CANDIDATES.find((type) => MediaRecorder.isTypeSupported(type)) || null
 }
 
-export const createRunRecorder = ({getSourceCanvas, drawOverlay}) => {
+export const createRunRecorder = ({getSourceCanvas, drawOverlay = () => {}, filePrefix = 'font-ar'}) => {
   const mimeType = pickMimeType()
   let session = null
 
@@ -112,7 +112,7 @@ export const createRunRecorder = ({getSourceCanvas, drawOverlay}) => {
         const baseType = mimeType.split(';')[0]
         const extension = baseType === 'video/mp4' ? 'mp4' : 'webm'
         const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
-        resolve(s.chunks.length ? new File(s.chunks, `font-ar-${stamp}.${extension}`, {type: baseType}) : null)
+        resolve(s.chunks.length ? new File(s.chunks, `${filePrefix}-${stamp}.${extension}`, {type: baseType}) : null)
       }
       s.recorder.stop()
     })

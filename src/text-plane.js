@@ -7,28 +7,36 @@
 import * as THREE from 'three'
 import opentype from 'opentype.js'
 
-import {FONTS, DEFAULT_FONT_ID} from './fonts'
+import {DEFAULT_FONT_ID, findFont} from './fonts'
 
 export const TEXT_WORLD_HEIGHT = 0.4 // meters
-const TEXT_THICKNESS_RATIO = 0.12 // extrusion depth, as a fraction of worldHeight
 
+// Material/extrusion defaults; a style preset's `look` overrides any of these.
+const DEFAULT_LOOK = {
+  depthRatio: 0.12, // extrusion depth, as a fraction of the text height
+  roughness: 0.5,
+  metalness: 0.05,
+  emissive: 0, // 0..1, how much the text glows in its own color
+}
+
+// Cached per font file (the condensed face shares the regular gothic's file).
 const fontPromises = new Map()
 export const loadFont = (fontId = DEFAULT_FONT_ID) => {
-  if (!fontPromises.has(fontId)) {
-    const font = FONTS.find((f) => f.id === fontId) || FONTS[0]
-    const promise = fetch(font.url)
+  const {url} = findFont(fontId)
+  if (!fontPromises.has(url)) {
+    const promise = fetch(url)
       .then((res) => res.arrayBuffer())
       .then((buffer) => opentype.parse(buffer))
-    fontPromises.set(fontId, promise)
+    fontPromises.set(url, promise)
   }
-  return fontPromises.get(fontId)
+  return fontPromises.get(url)
 }
 
 // Splits an opentype.js path into its individual closed contours, converting each to a
-// three.js Path so its point-based signed area can be measured. In these fonts' outlines, a
-// negative signed area is a solid (fillable) contour and a positive one is a hole -- empirically
-// verified against a character with a nested hole (回), which produced alternating signs at each
-// nesting level.
+// three.js Path so its point-based signed area can be measured. Which sign means "solid" depends
+// on the font's outline format (CFF-based .otf and TrueType-based .ttf wind outer contours in
+// opposite directions), so pathToShapes works that out per run of text rather than assuming it
+// (same fix as Font AR's text-plane.js).
 const contoursOf = (otPath) => {
   const contours = []
   let current = null
@@ -75,9 +83,17 @@ const pointInPolygon = (point, polygon) => {
 // its outer frame's hole as its own shape, rather than being merged into one).
 const pathToShapes = (otPath) => {
   const contours = contoursOf(otPath)
-  const solids = contours.filter((c) => c.area < 0).map((c) => ({shape: new THREE.Shape(c.points), points: c.points}))
+  if (contours.length === 0) {
+    return []
+  }
+  // The largest contour in any run of text is always an outer (solid) one -- a hole is by
+  // definition inside something bigger -- so its winding direction is this font's "solid" sign.
+  const largest = contours.reduce((a, b) => (Math.abs(b.area) > Math.abs(a.area) ? b : a))
+  const solidSign = Math.sign(largest.area)
+  const isSolid = (c) => c.area * solidSign > 0
+  const solids = contours.filter(isSolid).map((c) => ({shape: new THREE.Shape(c.points), points: c.points}))
   contours
-    .filter((c) => c.area >= 0)
+    .filter((c) => !isSolid(c))
     .forEach((hole) => {
       const owner = solids.find((s) => pointInPolygon(hole.points[0], s.points))
       if (owner) {
@@ -88,11 +104,13 @@ const pathToShapes = (otPath) => {
 }
 
 // Builds a group showing `text` as a solid, shadow-casting 3D object sized so its world-space
-// height is `worldHeight` meters, in the requested font and color. The group is centered on X/Z
-// with its bottom at local y=0, so placing it at a ground hit point sits it directly on the
+// height is `worldHeight` meters, in the requested font, color, and look. The group is centered on
+// X/Z with its bottom at local y=0, so placing it at a ground hit point sits it directly on the
 // ground.
-export const createTextMesh = async (text, {fontId = DEFAULT_FONT_ID, worldHeight = TEXT_WORLD_HEIGHT, color = '#ff3b30'} = {}) => {
+export const createTextMesh = async (text, {fontId = DEFAULT_FONT_ID, worldHeight = TEXT_WORLD_HEIGHT, color = '#ff3b30', look = {}} = {}) => {
   const font = await loadFont(fontId)
+  const {scaleX} = findFont(fontId)
+  const {depthRatio, roughness, metalness, emissive} = {...DEFAULT_LOOK, ...look}
   const otPath = font.getPath(text, 0, 0, 1) // fontSize=1 -> coordinates are fractions of an em
   const shapes = pathToShapes(otPath)
 
@@ -106,12 +124,12 @@ export const createTextMesh = async (text, {fontId = DEFAULT_FONT_ID, worldHeigh
   const scale = worldHeight / emHeight
 
   const geometry = new THREE.ExtrudeGeometry(shapes, {
-    depth: emHeight * TEXT_THICKNESS_RATIO,
+    depth: emHeight * depthRatio,
     bevelEnabled: false,
   })
   // opentype.js paths are Y-down (like a canvas); flipping Y here both corrects that and applies
-  // the em-units-to-meters scale in one step.
-  geometry.scale(scale, -scale, scale)
+  // the em-units-to-meters scale (and the font's horizontal squeeze) in one step.
+  geometry.scale(scale * scaleX, -scale, scale)
   geometry.computeBoundingBox()
   const bounds = geometry.boundingBox
   geometry.translate(
@@ -122,8 +140,10 @@ export const createTextMesh = async (text, {fontId = DEFAULT_FONT_ID, worldHeigh
 
   const material = new THREE.MeshStandardMaterial({
     color,
-    roughness: 0.5,
-    metalness: 0.05,
+    roughness,
+    metalness,
+    emissive: color,
+    emissiveIntensity: emissive,
   })
 
   const mesh = new THREE.Mesh(geometry, material)

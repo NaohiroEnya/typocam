@@ -1,22 +1,44 @@
+/* Preview faces for the font sheet / text editor. `font-display: swap` + only being referenced by
+   elements that are actually shown means a font file is fetched only once its preview is needed. */
 @font-face {
-  font-family: 'FPAR-Gothic';
-  src: url('./assets/fonts/NotoSansJP-subset.otf') format('opentype');
-  font-display: swap;
-}
-@font-face {
-  font-family: 'FPAR-Mincho';
+  font-family: 'TC-Mincho';
   src: url('./assets/fonts/NotoSerifJP-subset.ttf') format('truetype');
   font-display: swap;
 }
 @font-face {
-  font-family: 'FPAR-Marker';
-  src: url('./assets/fonts/YuseiMagic-subset.ttf') format('truetype');
+  font-family: 'TC-Bold';
+  src: url('./assets/fonts/DelaGothicOne-subset.ttf') format('truetype');
   font-display: swap;
 }
 @font-face {
-  font-family: 'FPAR-Pop';
-  src: url('./assets/fonts/HachiMaruPop-subset.ttf') format('truetype');
+  font-family: 'TC-Gothic';
+  src: url('./assets/fonts/NotoSansJP-subset.otf') format('opentype');
   font-display: swap;
+}
+@font-face {
+  font-family: 'TC-Maru';
+  src: url('./assets/fonts/ZenMaruGothic-subset.ttf') format('truetype');
+  font-display: swap;
+}
+@font-face {
+  font-family: 'TC-Hand';
+  src: url('./assets/fonts/YuseiMagic-subset.ttf') format('truetype');
+  font-display: swap;
+}
+
+:root {
+  --glass-bg: rgba(18, 18, 20, 0.32);
+  --glass-bg-strong: rgba(18, 18, 20, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.22);
+  --glass-blur: blur(14px) saturate(140%);
+  --fg: #fff;
+  --fg-dim: rgba(255, 255, 255, 0.72);
+  --accent: #fff;
+  --record: #ff3b30;
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+  --safe-right: env(safe-area-inset-right);
+  --safe-left: env(safe-area-inset-left);
 }
 
 body {
@@ -25,11 +47,28 @@ body {
   height: 100%;
   margin: -1px 0px 0px 0px !important;
   padding: 0;
-  font-family: 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+  background: #000;
+  color: var(--fg);
+  font-family: -apple-system, 'Hiragino Sans', 'Yu Gothic', 'Noto Sans JP', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 button {
   font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 /* Overlays below declare `display: flex` via an ID selector, which otherwise beats the
@@ -39,103 +78,93 @@ button {
   display: none !important;
 }
 
-/* ---------- Bottom control panel ---------- */
+.glass {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+}
+
+.glass-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 22px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  font-size: 14px;
+}
+
+.glass-pill {
+  padding: 0 18px;
+}
+
+.solid-pill {
+  height: 44px;
+  padding: 0 24px;
+  border-radius: 22px;
+  border: none;
+  background: #fff;
+  color: #111;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ---------- Camera overlay ---------- */
 
 #ui {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 10;
-  padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
-  box-sizing: border-box;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
-  color: #fff;
   pointer-events: none;
+  transition: opacity 150ms ease;
 }
 
-#instructions {
-  margin: 0 0 10px;
-  font-size: 13px;
-  text-align: center;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
-}
-
-#controls {
-  display: flex;
-  gap: 8px;
+#ui > * {
   pointer-events: auto;
-  margin-bottom: 8px;
 }
 
-#text-input {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 12px;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-}
-
-.chip-row {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 8px;
-  pointer-events: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.chip-row:last-child {
-  padding-bottom: 0;
-}
-
-.chip {
-  flex: 0 0 auto;
-  border: 2px solid transparent;
-  border-radius: 999px;
-  padding: 8px 16px;
-  font-size: 14px;
-  background: rgba(255, 255, 255, 0.85);
-  color: #1c1c1e;
+#guide {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none !important;
+  font-size: 17px;
+  letter-spacing: 0.12em;
   white-space: nowrap;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+  transition: opacity 300ms ease;
 }
 
-.chip.selected {
-  border-color: #fff;
-  background: #fff;
-  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.9);
+#recipe-open {
+  position: absolute;
+  top: calc(12px + var(--safe-top));
+  left: calc(12px + var(--safe-left));
+  padding: 0 14px;
 }
 
-.chip-color {
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.6);
+#recipe-open svg {
+  width: 18px;
+  height: 18px;
 }
 
-.chip-color.selected {
-  border-color: #fff;
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.9);
-}
-
-/* ---------- Selection panel (position/size adjustment for a placed text) ---------- */
-
-#selection-panel {
-  pointer-events: auto;
-}
-
-#selection-size-row {
+#selection-bar {
+  position: absolute;
+  top: calc(12px + var(--safe-top));
+  right: calc(12px + var(--safe-right));
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-  font-size: 14px;
-}
-
-#selection-size {
-  flex: 1;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
 }
 
 #selection-actions {
@@ -143,179 +172,436 @@ button {
   gap: 8px;
 }
 
-.panel-button {
-  flex: 1;
-  border: none;
-  border-radius: 999px;
-  padding: 10px 12px;
-  font-size: 14px;
-  background: rgba(255, 255, 255, 0.85);
-  color: #1c1c1e;
+#selection-hint {
+  order: 2;
+  font-size: 11px;
+  color: var(--fg-dim);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
-.panel-button-danger {
-  background: rgba(255, 59, 48, 0.9);
-  color: #fff;
-}
+/* ---------- Right toolbar ---------- */
 
-/* ---------- Shutter button ---------- */
-
-#shutter-row {
+#toolbar {
+  position: absolute;
+  top: 50%;
+  right: calc(10px + var(--safe-right));
+  transform: translateY(-50%);
   display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.tool-icon {
+  display: flex;
+  align-items: center;
   justify-content: center;
-  padding-top: 4px;
-  pointer-events: auto;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.tool:active .tool-icon {
+  transform: scale(0.92);
+}
+
+.tool.active .tool-icon {
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+}
+
+.tool-icon-text {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.tool-icon-font {
+  font-size: 21px;
+}
+
+#tool-color-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+
+.tool-label {
+  font-size: 10px;
+  color: var(--fg);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- Bottom sheets ---------- */
+
+.sheet {
+  position: absolute;
+  left: calc(10px + var(--safe-left));
+  right: calc(10px + var(--safe-right));
+  bottom: calc(132px + var(--safe-bottom));
+  padding: 10px;
+  border-radius: 22px;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  animation: sheet-in 180ms ease;
+}
+
+@keyframes sheet-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+.sheet-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sheet-row::-webkit-scrollbar {
+  display: none;
+}
+
+.sheet-row-colors {
+  justify-content: space-between;
+  overflow: visible;
+}
+
+.option-card {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 78px;
+  height: 80px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  border: 1.5px solid transparent;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.option-card.selected {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.option-sample {
+  display: block;
+  max-width: 120px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  font-size: 21px;
+  line-height: 1.2;
+}
+
+.option-label {
+  font-size: 10px;
+  color: var(--fg-dim);
+}
+
+.color-swatch {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+}
+
+.color-swatch.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.45);
+  transform: scale(1.08);
+}
+
+/* ---------- Shutter + mode switch ---------- */
+
+#capture-bar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + var(--safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
 }
 
 #shutter {
-  width: 64px;
-  height: 64px;
+  position: relative;
+  width: 74px;
+  height: 74px;
+  padding: 0;
   border-radius: 50%;
-  background: #fff;
-  border: 4px solid rgba(0, 0, 0, 0.35);
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  border: 4px solid rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
 }
 
-#shutter:active {
-  background: #ddd;
+#shutter span {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: #fff;
+  transition: inset 180ms ease, border-radius 180ms ease, background 180ms ease;
+}
+
+#shutter:active span {
+  inset: 8px;
 }
 
 #shutter:disabled {
   opacity: 0.6;
 }
 
-/* ---------- Gallery open button ---------- */
-
-#gallery-open {
-  position: fixed;
-  left: calc(16px + env(safe-area-inset-left));
-  top: calc(16px + env(safe-area-inset-top));
-  z-index: 11;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(0, 0, 0, 0.5);
-  font-size: 22px;
-  line-height: 1;
-  color: #fff;
+body.mode-video #shutter span {
+  background: var(--record);
 }
 
-.badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
+body.is-recording #shutter span {
+  inset: 22px;
+  border-radius: 6px;
+}
+
+#mode-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
   border-radius: 999px;
-  background: #ff3b30;
-  color: #fff;
-  font-size: 11px;
-  font-weight: bold;
-  line-height: 18px;
-  text-align: center;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
 }
 
-/* ---------- Gallery overlay ---------- */
+#mode-switch button {
+  border: none;
+  background: none;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
 
-#gallery-overlay {
+#mode-switch button[aria-checked='true'] {
+  background: rgba(255, 255, 255, 0.92);
+  color: #111;
+  font-weight: 600;
+}
+
+#record-timer {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--record);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* While recording, only the stop button and timer stay on screen; while a photo is taken the
+   whole overlay blinks out. Neither is in the image either way -- the canvas holds no DOM. */
+body.is-recording #ui > :not(#capture-bar),
+body.is-recording #mode-switch {
+  visibility: hidden;
+}
+
+body.is-capturing #ui {
+  opacity: 0;
+}
+
+/* ---------- Text editor ---------- */
+
+#text-editor {
   position: fixed;
   inset: 0;
   z-index: 20;
-  background: rgba(0, 0, 0, 0.92);
-  color: #fff;
   display: flex;
   flex-direction: column;
-  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  align-items: center;
+  margin: 0;
+  padding: calc(10px + var(--safe-top)) 16px 16px;
   box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.55);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 
-#gallery-header {
+#text-editor-top {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  font-size: 16px;
-  font-weight: bold;
-  margin-bottom: 12px;
-}
-
-#gallery-close {
-  border: none;
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  font-size: 16px;
-}
-
-#gallery-empty {
-  text-align: center;
-  color: rgba(255, 255, 255, 0.6);
-  margin-top: 40px;
-}
-
-#gallery-grid {
-  flex: 1;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  align-content: start;
-}
-
-.gallery-thumb {
   width: 100%;
-  aspect-ratio: 3 / 4;
-  object-fit: cover;
-  border-radius: 6px;
-  background: #111;
 }
 
-/* ---------- Photo viewer ---------- */
+.link-button {
+  border: none;
+  background: none;
+  padding: 10px 4px;
+  font-size: 16px;
+}
 
-#photo-viewer {
+.link-button-strong {
+  font-weight: 700;
+}
+
+#text-input {
+  width: 100%;
+  margin-top: 22vh;
+  padding: 8px 0;
+  border: none;
+  outline: none;
+  background: none;
+  text-align: center;
+  font-size: 40px;
+  line-height: 1.3;
+  caret-color: #fff;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#text-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+#text-editor-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+/* ---------- Capture result ---------- */
+
+#result {
   position: fixed;
   inset: 0;
   z-index: 30;
-  background: rgba(0, 0, 0, 0.96);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  gap: 16px;
+  padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom));
   box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.92);
 }
 
-#photo-viewer-img {
+#result-media {
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+  flex: 1;
+  width: 100%;
+}
+
+#result-media img,
+#result-media video {
   max-width: 100%;
-  max-height: 75vh;
+  max-height: 100%;
   object-fit: contain;
-  border-radius: 8px;
+  border-radius: 14px;
 }
 
-#photo-viewer-actions {
+#result-actions {
   display: flex;
   gap: 12px;
-  margin-top: 16px;
 }
 
-.viewer-button {
-  padding: 10px 18px;
+/* ---------- Recipe sheet ---------- */
+
+#recipe {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  align-items: flex-end;
+  padding: 12px 12px calc(12px + var(--safe-bottom));
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+#recipe-card {
+  width: 100%;
+  padding: 18px 18px 16px;
+  box-sizing: border-box;
+  border-radius: 24px;
+  background: rgba(24, 24, 28, 0.88);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  text-align: center;
+  animation: sheet-in 180ms ease;
+}
+
+.recipe-title {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-dim);
+}
+
+#recipe-preview {
+  margin: 14px 0 6px;
+  font-size: 34px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
+}
+
+#recipe-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-dim);
+}
+
+.recipe-note {
+  margin: 12px 0 16px;
+  font-size: 11px;
+  color: var(--fg-dim);
+}
+
+#recipe-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+/* ---------- Toast + capture flash ---------- */
+
+#toast {
+  position: fixed;
+  top: calc(66px + var(--safe-top));
+  left: 50%;
+  z-index: 40;
+  transform: translateX(-50%);
+  max-width: calc(100% - 48px);
+  padding: 9px 16px;
   border-radius: 999px;
-  border: none;
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  font-size: 14px;
-  text-decoration: none;
+  background: var(--glass-bg-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  font-size: 13px;
+  text-align: center;
+  pointer-events: none;
 }
-
-#photo-delete {
-  background: rgba(255, 59, 48, 0.85);
-}
-
-/* ---------- Capture flash ---------- */
 
 #flash {
   position: fixed;
@@ -329,4 +615,16 @@ button {
 
 #flash.active {
   opacity: 0.85;
+}
+
+/* The four style presets always fit side by side; fonts (six) scroll. */
+#style-row .option-card {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 4px;
+}
+
+#style-row .option-sample {
+  max-width: 100%;
+  font-size: 19px;
 }

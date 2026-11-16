@@ -1,5 +1,5 @@
 {
-  "name": "font-photo-ar",
+  "name": "typocam",
   "scripts": {
     "serve": "vite",
     "build": "vite build",

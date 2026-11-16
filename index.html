@@ -4,8 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 
-    <title>Font Photo AR</title>
-    <meta name="description" content="Webブラウザ上で、好きな文字をフォントと色を選んでAR空間に配置し、写真が撮れるアプリ">
+    <title>TYPO CAM</title>
+    <meta name="description" content="空間に言葉を置いて、思い出を残すARタイポカメラ">
 
     <!-- Versions pinned exactly (not "@1") so jsdelivr never needs to re-resolve against the
          npm registry at runtime -- it can serve these cached files even if the package is ever
@@ -17,60 +17,101 @@
     <link rel="stylesheet" href="src/index.css">
   </head>
   <body>
-    <!-- The main canvas used for drawing by the app; also the source frame captured as a photo. -->
+    <!-- The main canvas used for drawing by the app; also the source frame for photos and video. -->
     <canvas id="camerafeed"></canvas>
 
-    <button id="gallery-open" type="button" aria-label="ギャラリーを開く">
-      🖼️<span id="gallery-count" class="badge" hidden>0</span>
-    </button>
-
+    <!-- Everything below is DOM on top of the canvas, so it never ends up in photos or videos. -->
     <div id="ui">
-      <p id="instructions">文字を入力し、フォント・色・サイズを選んで地面をタップすると設置されます(設置済みの文字をタップすると選択できます)</p>
+      <p id="guide">空間に文字を置く</p>
 
-      <div id="placement-panel">
-        <div id="controls">
-          <input id="text-input" type="text" maxlength="10" value="AR" placeholder="表示する文字">
-        </div>
+      <button id="recipe-open" class="glass-button" type="button" aria-label="レシピを共有">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>
+        <span>レシピ</span>
+      </button>
 
-        <div id="font-row" class="chip-row" role="group" aria-label="フォントを選択"></div>
-        <div id="color-row" class="chip-row" role="group" aria-label="カラーを選択"></div>
-        <div id="size-row" class="chip-row" role="group" aria-label="サイズを選択"></div>
-
-        <div id="shutter-row">
-          <button id="shutter" type="button" aria-label="写真を撮る"></button>
-        </div>
-      </div>
-
-      <div id="selection-panel" hidden>
-        <div id="selection-size-row">
-          <span>サイズ</span>
-          <input id="selection-size" type="range" min="0.5" max="2.5" step="0.05" value="1" aria-label="選択中の文字のサイズ">
-        </div>
+      <div id="selection-bar" hidden>
+        <span id="selection-hint">ドラッグで移動・ピンチで拡大縮小・ひねって回転</span>
         <div id="selection-actions">
-          <button id="selection-delete" type="button" class="panel-button panel-button-danger">この文字を削除</button>
-          <button id="selection-done" type="button" class="panel-button">完了</button>
+          <button id="selection-delete" class="glass-button" type="button" aria-label="この文字を削除">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+          </button>
+          <button id="selection-done" class="glass-button glass-pill" type="button">完了</button>
+        </div>
+      </div>
+
+      <nav id="toolbar" aria-label="ツール">
+        <button class="tool" type="button" data-tool="text" aria-label="文字入力">
+          <span class="tool-icon tool-icon-text">Aa</span><span class="tool-label">文字</span>
+        </button>
+        <button class="tool" type="button" data-tool="style" aria-label="スタイル">
+          <span class="tool-icon">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg>
+          </span><span class="tool-label">スタイル</span>
+        </button>
+        <button class="tool" type="button" data-tool="font" aria-label="フォント">
+          <span class="tool-icon tool-icon-font" id="tool-font-preview">あ</span><span class="tool-label">フォント</span>
+        </button>
+        <button class="tool" type="button" data-tool="color" aria-label="カラー">
+          <span class="tool-icon"><span id="tool-color-dot"></span></span><span class="tool-label">カラー</span>
+        </button>
+      </nav>
+
+      <!-- Bottom sheets, one per tool; only one is open at a time. -->
+      <section class="sheet" data-sheet="style" hidden>
+        <div id="style-row" class="sheet-row" role="group" aria-label="スタイルを選択"></div>
+      </section>
+      <section class="sheet" data-sheet="font" hidden>
+        <div id="font-row" class="sheet-row" role="group" aria-label="フォントを選択"></div>
+      </section>
+      <section class="sheet" data-sheet="color" hidden>
+        <div id="color-row" class="sheet-row sheet-row-colors" role="group" aria-label="カラーを選択"></div>
+      </section>
+
+      <div id="capture-bar">
+        <span id="record-timer" hidden>0:00</span>
+        <button id="shutter" type="button" aria-label="写真を撮る"><span></span></button>
+        <div id="mode-switch" role="radiogroup" aria-label="撮影モード">
+          <button type="button" role="radio" data-mode="photo" aria-checked="true">写真</button>
+          <button type="button" role="radio" data-mode="video" aria-checked="false">動画</button>
         </div>
       </div>
     </div>
 
-    <div id="gallery-overlay" hidden>
-      <div id="gallery-header">
-        <span>撮った写真 (<span id="gallery-overlay-count">0</span>)</span>
-        <button id="gallery-close" type="button" aria-label="閉じる">✕</button>
+    <!-- Full-screen text entry, Instagram-style: the typed text previews in the current font/color. -->
+    <form id="text-editor" hidden>
+      <div id="text-editor-top">
+        <button id="text-editor-cancel" type="button" class="link-button">キャンセル</button>
+        <button id="text-editor-done" type="submit" class="link-button link-button-strong">完了</button>
       </div>
-      <p id="gallery-empty">まだ写真がありません。シャッターボタンで撮影してみましょう。</p>
-      <div id="gallery-grid"></div>
+      <input id="text-input" type="text" maxlength="20" placeholder="言葉を入力" autocomplete="off" enterkeyhint="done" aria-label="配置する文字">
+      <p id="text-editor-note">入力後、空間をタップすると文字を置けます</p>
+    </form>
+
+    <!-- Result of a capture: the photo or video, with save / retake. -->
+    <div id="result" hidden>
+      <div id="result-media"></div>
+      <div id="result-actions">
+        <button id="result-close" type="button" class="glass-button glass-pill">撮り直す</button>
+        <button id="result-save" type="button" class="solid-pill">保存</button>
+      </div>
+      <a id="result-download" hidden></a>
     </div>
 
-    <div id="photo-viewer" hidden>
-      <img id="photo-viewer-img" alt="撮影した写真">
-      <div id="photo-viewer-actions">
-        <a id="photo-download" class="viewer-button" download="font-photo-ar.jpg">保存</a>
-        <button id="photo-delete" type="button" class="viewer-button">削除</button>
-        <button id="photo-viewer-close" type="button" class="viewer-button">閉じる</button>
+    <!-- Recipe share sheet. -->
+    <div id="recipe" hidden>
+      <div id="recipe-card">
+        <p class="recipe-title">このレシピを共有</p>
+        <p id="recipe-preview"></p>
+        <p id="recipe-meta"></p>
+        <p class="recipe-note">リンクを開いた人は、同じ文字設定で自分の場所に置いて撮影できます</p>
+        <div id="recipe-actions">
+          <button id="recipe-close" type="button" class="glass-button glass-pill">閉じる</button>
+          <button id="recipe-share" type="button" class="solid-pill">リンクを共有</button>
+        </div>
       </div>
     </div>
 
+    <div id="toast" role="status" aria-live="polite" hidden></div>
     <div id="flash"></div>
 
     <script type="module" src="src/app.js"></script>

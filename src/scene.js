@@ -1,6 +1,6 @@
 // 8th Wall XR Camera Pipeline Module: lets the user tap the ground to fix text in real space,
-// select a placed text to drag-reposition or resize it, and grab a still frame of the composited
-// camera + AR scene for the photo gallery.
+// drag a placed text to move it, pinch to resize it, twist to rotate it, and grab a still frame
+// (or a per-frame hook, for video) of the composited camera + AR scene.
 // XR8.XrController provides real 6DoF SLAM tracking, so text placed here stays anchored to the
 // physical location it was tapped on, including depth (distance from the camera) — unlike a
 // DeviceOrientation-only approach, which can only react to tilt, not real-world position.
@@ -8,24 +8,26 @@ import * as THREE from 'three'
 
 import {createTextMesh} from './text-plane'
 
-const SELECTION_RING_COLOR = 0x2979ff
+const SELECTION_RING_COLOR = 0xffffff
+const MIN_SCALE = 0.2
+const MAX_SCALE = 6
 
 // A thin flat ring, sized to the selected text's footprint, added as a child of its group so it
-// automatically follows that group's position, rotation, and (importantly, for the resize slider)
+// automatically follows that group's position, rotation, and (importantly, for pinch resizing)
 // scale without any extra transform math.
 const createSelectionRing = (group) => {
-  const mesh = group.children[0]
+  const mesh = group.userData.textMesh
   if (!mesh) {
-    return null // e.g. blank input, which produced an empty group
+    return null // e.g. a glyph outside the bundled font, which produced an empty group
   }
   const bounds = mesh.geometry.boundingBox
   const outerRadius = Math.max(bounds.max.x - bounds.min.x, bounds.max.z - bounds.min.z) * 0.65 + 0.04
-  const geometry = new THREE.RingGeometry(outerRadius * 0.85, outerRadius, 40)
+  const geometry = new THREE.RingGeometry(outerRadius * 0.9, outerRadius, 48)
   geometry.rotateX(-Math.PI / 2)
   const material = new THREE.MeshBasicMaterial({
     color: SELECTION_RING_COLOR,
     transparent: true,
-    opacity: 0.9,
+    opacity: 0.8,
     depthWrite: false,
     side: THREE.DoubleSide,
   })
@@ -35,11 +37,26 @@ const createSelectionRing = (group) => {
   return ring
 }
 
-// `getPlacementOptions` is called at the moment of each tap so the currently selected text/font
-// /color/size always apply to the next placed object, without this module needing to know about
-// the UI that manages those choices. `onSelectionChange` is called with the selected group (or
-// null) whenever selection changes, so the UI can show/hide the position/size controls.
-export const createScenePipeline = ({getPlacementOptions, onSelectionChange}) => {
+const disposeMesh = (mesh) => {
+  mesh.geometry.dispose()
+  mesh.material.dispose()
+}
+
+// `getPlacementOptions` is called at the moment of each tap so the current text settings always
+// apply to the next placed object, without this module needing to know about the UI that manages
+// them; it returns null when there's no text yet, in which case `onNeedText` is called instead of
+// placing. `onSelectionChange` is called with the selected group's options (or null) whenever
+// selection changes, `onPlaced` after a new text lands, and `onScaleChange` with the selected
+// text's scale after a pinch. `onFrameRendered` is called once per frame right after the AR scene
+// has been drawn (used to feed the video recorder).
+export const createScenePipeline = ({
+  getPlacementOptions,
+  onNeedText,
+  onPlaced,
+  onSelectionChange,
+  onScaleChange,
+  onFrameRendered,
+}) => {
   // Plane used both as the raycast target for tap placement/dragging and as a shadow-catcher:
   // it's invisible except where a placed text object blocks the light, so text reads as sitting
   // on the ground rather than floating.
@@ -56,35 +73,82 @@ export const createScenePipeline = ({getPlacementOptions, onSelectionChange}) =>
 
   let liveScene = null
   let selectedGroup = null
-  let dragTouchId = null // touch identifier currently dragging selectedGroup, or null
+  let helpersVisible = true
+  let drag = null // {touchId, offset} while one finger drags selectedGroup
+  let pinch = null // {distance, angle, scale, rotationY} at the start of a two-finger gesture
 
-  const placeTextAt = async ({scene, camera}, point) => {
-    const {text, fontId, color, worldHeight} = getPlacementOptions()
-    const group = await createTextMesh(text, {fontId, color, worldHeight})
-    group.position.copy(point)
-    group.quaternion.copy(camera.quaternion) // face the viewer at the moment it's placed
-    scene.add(group)
-    placedTexts.push(group)
+  // Each placed text is a group holding the text mesh (plus, while selected, the ring). The group
+  // carries the transform; the mesh can be swapped out when the text/font/color/style change.
+  const buildTextMesh = async (options) => {
+    const built = await createTextMesh(options.text, {
+      fontId: options.fontId,
+      color: options.color,
+      look: options.look,
+    })
+    const [mesh] = built.children
+    return mesh || null
   }
 
-  const removeGroup = (scene, group) => {
-    scene.remove(group)
-    placedTexts.splice(placedTexts.indexOf(group), 1)
+  const setTextMesh = (group, mesh) => {
+    const previous = group.userData.textMesh
+    if (previous) {
+      group.remove(previous)
+      disposeMesh(previous)
+    }
+    group.userData.textMesh = mesh
+    if (mesh) {
+      group.add(mesh)
+    }
+  }
+
+  const removeRing = (group) => {
+    const ring = group.userData.selectionRing
+    if (ring) {
+      group.remove(ring)
+      disposeMesh(ring)
+      delete group.userData.selectionRing
+    }
+  }
+
+  const addRing = (group) => {
+    const ring = createSelectionRing(group)
+    if (ring) {
+      ring.visible = helpersVisible
+      group.add(ring)
+      group.userData.selectionRing = ring
+    }
+  }
+
+  const placeTextAt = async ({scene, camera}, point) => {
+    const options = getPlacementOptions()
+    if (!options) {
+      onNeedText()
+      return
+    }
+    const group = new THREE.Group()
+    setTextMesh(group, await buildTextMesh(options))
+    group.userData.options = options
+    group.position.copy(point)
+    group.scale.setScalar(options.size)
+    // Stand upright facing the viewer: only the camera's heading is used, so text never tilts
+    // into the ground when the phone is pointed down at the spot it's placed on.
+    const forward = new THREE.Vector3()
+    camera.getWorldDirection(forward)
+    group.rotation.set(0, Math.atan2(-forward.x, -forward.z), 0)
+    scene.add(group)
+    placedTexts.push(group)
+    select(group)
+    onPlaced()
   }
 
   const deselect = () => {
     if (!selectedGroup) {
       return
     }
-    const ring = selectedGroup.userData.selectionRing
-    if (ring) {
-      selectedGroup.remove(ring)
-      ring.geometry.dispose()
-      ring.material.dispose()
-      delete selectedGroup.userData.selectionRing
-    }
+    removeRing(selectedGroup)
     selectedGroup = null
-    dragTouchId = null
+    drag = null
+    pinch = null
     onSelectionChange(null)
   }
 
@@ -94,17 +158,29 @@ export const createScenePipeline = ({getPlacementOptions, onSelectionChange}) =>
     }
     deselect()
     selectedGroup = group
-    const ring = createSelectionRing(group)
-    if (ring) {
-      group.add(ring)
-      group.userData.selectionRing = ring
-    }
-    onSelectionChange(group)
+    addRing(group)
+    onSelectionChange({...group.userData.options, size: group.scale.x})
   }
 
-  const setSelectedScale = (scale) => {
-    if (selectedGroup) {
-      selectedGroup.scale.setScalar(scale)
+  // Rebuilds the selected text with new settings (text/font/color/look), keeping where it is,
+  // how it's turned, and how big it was pinched to.
+  const updateSelected = async (options) => {
+    const group = selectedGroup
+    if (!group) {
+      return
+    }
+    group.userData.options = options
+    const token = Symbol('rebuild')
+    group.userData.rebuildToken = token
+    const mesh = await buildTextMesh(options)
+    if (group.userData.rebuildToken !== token) {
+      if (mesh) disposeMesh(mesh) // a newer change already superseded this one
+      return
+    }
+    removeRing(group)
+    setTextMesh(group, mesh)
+    if (group === selectedGroup) {
+      addRing(group)
     }
   }
 
@@ -114,7 +190,18 @@ export const createScenePipeline = ({getPlacementOptions, onSelectionChange}) =>
     }
     const group = selectedGroup
     deselect()
-    removeGroup(liveScene, group)
+    liveScene.remove(group)
+    placedTexts.splice(placedTexts.indexOf(group), 1)
+    setTextMesh(group, null)
+  }
+
+  // Hides scene-side UI (the selection ring) so photos and videos show only the camera and text.
+  const setHelpersVisible = (visible) => {
+    helpersVisible = visible
+    const ring = selectedGroup && selectedGroup.userData.selectionRing
+    if (ring) {
+      ring.visible = visible
+    }
   }
 
   const initXrScene = ({scene, camera, renderer}) => {
@@ -151,11 +238,12 @@ export const createScenePipeline = ({getPlacementOptions, onSelectionChange}) =>
 
   return {
     requestCapture,
-    setSelectedScale,
+    updateSelected,
     deleteSelected,
     deselect,
+    setHelpersVisible,
     pipelineModule: {
-      name: 'font-photo-ar',
+      name: 'typocam',
 
       onStart: ({canvas}) => {
         const {scene, camera, renderer} = XR8.Threejs.xrScene()
@@ -167,30 +255,57 @@ export const createScenePipeline = ({getPlacementOptions, onSelectionChange}) =>
           {origin: camera.position, facing: camera.quaternion}
         )
 
-        const setPointerFromTouch = (touch) => {
+        const groundPointFromTouch = (touch) => {
           pointer.x = (touch.clientX / window.innerWidth) * 2 - 1
           pointer.y = -(touch.clientY / window.innerHeight) * 2 + 1
+          raycaster.setFromCamera(pointer, camera)
+          const [groundHit] = raycaster.intersectObject(ground)
+          return groundHit ? groundHit.point : null
+        }
+
+        const twoFingerMetrics = (touches) => {
+          const dx = touches[1].clientX - touches[0].clientX
+          const dy = touches[1].clientY - touches[0].clientY
+          return {distance: Math.hypot(dx, dy), angle: Math.atan2(dy, dx)}
+        }
+
+        const startPinch = (touches) => {
+          drag = null
+          pinch = {
+            ...twoFingerMetrics(touches),
+            scale: selectedGroup.scale.x,
+            rotationY: selectedGroup.rotation.y,
+          }
         }
 
         canvas.addEventListener('touchstart', async (event) => {
+          if (event.touches.length === 2 && selectedGroup) {
+            startPinch(event.touches)
+            return
+          }
           if (event.touches.length !== 1) {
             return
           }
 
           const touch = event.touches[0]
-          setPointerFromTouch(touch)
+          pointer.x = (touch.clientX / window.innerWidth) * 2 - 1
+          pointer.y = -(touch.clientY / window.innerHeight) * 2 + 1
           raycaster.setFromCamera(pointer, camera)
 
-          // Tapping an already-placed text selects it (or, if it's already selected, starts
-          // dragging it); tapping empty ground either deselects, or -- if nothing is selected --
-          // places a new text using whatever text/font/color/size are currently chosen in the UI.
+          // Touching a placed text selects it and starts dragging it straight away; touching
+          // empty ground either deselects, or -- if nothing is selected -- places a new text with
+          // the current settings.
           const [textHit] = raycaster.intersectObjects(placedTexts, true)
           if (textHit) {
-            const hitGroup = textHit.object.parent
-            if (hitGroup === selectedGroup) {
-              dragTouchId = touch.identifier
-            } else {
-              select(hitGroup)
+            let hitGroup = textHit.object
+            while (hitGroup.parent && !placedTexts.includes(hitGroup)) {
+              hitGroup = hitGroup.parent
+            }
+            select(hitGroup)
+            const point = groundPointFromTouch(touch)
+            drag = {
+              touchId: touch.identifier,
+              offset: point ? hitGroup.position.clone().sub(point) : new THREE.Vector3(),
             }
             return
           }
@@ -200,43 +315,66 @@ export const createScenePipeline = ({getPlacementOptions, onSelectionChange}) =>
             return
           }
 
-          const [groundHit] = raycaster.intersectObject(ground)
-          if (groundHit) {
-            await placeTextAt({scene, camera}, groundHit.point)
+          const point = groundPointFromTouch(touch)
+          if (point) {
+            await placeTextAt({scene, camera}, point)
           }
         }, true)
 
         canvas.addEventListener('touchmove', (event) => {
           event.preventDefault()
 
-          if (dragTouchId === null) {
+          if (!selectedGroup) {
             return
           }
-          const touch = Array.from(event.touches).find((t) => t.identifier === dragTouchId)
+          if (event.touches.length >= 2) {
+            if (!pinch) {
+              startPinch(event.touches) // second finger landed mid-drag
+            }
+            const {distance, angle} = twoFingerMetrics(event.touches)
+            const scale = THREE.MathUtils.clamp(pinch.scale * (distance / pinch.distance), MIN_SCALE, MAX_SCALE)
+            selectedGroup.scale.setScalar(scale)
+            // Twisting the fingers clockwise on screen turns the text clockwise seen from above.
+            selectedGroup.rotation.y = pinch.rotationY - (angle - pinch.angle)
+            return
+          }
+          if (!drag) {
+            return
+          }
+          const touch = Array.from(event.touches).find((t) => t.identifier === drag.touchId)
           if (!touch) {
             return
           }
-          setPointerFromTouch(touch)
-          raycaster.setFromCamera(pointer, camera)
-          const [groundHit] = raycaster.intersectObject(ground)
-          if (groundHit) {
-            selectedGroup.position.copy(groundHit.point)
+          const point = groundPointFromTouch(touch)
+          if (point) {
+            selectedGroup.position.copy(point.add(drag.offset))
           }
         }, true)
 
-        const endDrag = () => {
-          dragTouchId = null
+        const endGesture = (event) => {
+          if (pinch && event.touches.length < 2) {
+            pinch = null
+            if (selectedGroup) {
+              selectedGroup.userData.options.size = selectedGroup.scale.x
+              onScaleChange(selectedGroup.scale.x)
+            }
+          }
+          // Lifting one finger of a pinch shouldn't turn the other into a drag (it would jump).
+          if (event.touches.length === 0 || (drag && !Array.from(event.touches).some((t) => t.identifier === drag.touchId))) {
+            drag = null
+          }
         }
-        canvas.addEventListener('touchend', endDrag, true)
-        canvas.addEventListener('touchcancel', endDrag, true)
+        canvas.addEventListener('touchend', endGesture, true)
+        canvas.addEventListener('touchcancel', endGesture, true)
       },
 
       onRender: () => {
+        onFrameRendered()
         if (pendingCaptures.length === 0) {
           return
         }
         const canvas = document.getElementById('camerafeed')
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.85)
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
         const resolvers = pendingCaptures
         pendingCaptures = []
         resolvers.forEach((resolve) => resolve(dataUrl))
