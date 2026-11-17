@@ -21,6 +21,8 @@ const DEFAULT_LOOK = {
 // The sides (the extruded depth) are a darker shade of the face color and barely self-lit, so the
 // letter's thickness reads as a distinct, shaded edge instead of merging into the face.
 const SIDE_SHADE = 0.55
+const DARK_LUMINANCE = 0.03
+const luminance = ({r, g, b}) => 0.2126 * r + 0.7152 * g + 0.0722 * b // linear rgb
 const SIDE_EMISSIVE = 0.15 // fraction of the face's emissive the sides keep
 const BEVEL_SIZE = 0.006 // in ems: a hairline rounded edge that catches the light
 
@@ -155,7 +157,11 @@ export const createTextMesh = async (text, {fontId = DEFAULT_FONT_ID, worldHeigh
     emissive: color,
     emissiveIntensity: emissive,
   })
-  const sideColor = new THREE.Color(color).multiplyScalar(SIDE_SHADE)
+  // Near-black text has no darker shade to go to, so its sides go a touch lighter instead.
+  const faceColor = new THREE.Color(color)
+  const sideColor = luminance(faceColor) < DARK_LUMINANCE
+    ? faceColor.clone().lerp(new THREE.Color(0xffffff), 0.1)
+    : faceColor.clone().multiplyScalar(SIDE_SHADE)
   const sideMaterial = new THREE.MeshStandardMaterial({
     color: sideColor,
     roughness: Math.min(1, roughness + 0.15),

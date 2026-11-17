@@ -10,6 +10,7 @@ import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.j
 
 import {createTextMesh} from './text-plane'
 import {prepareMotionMesh, restartMotion, applyMotion} from './motion'
+import {createPoseFilter} from './pose-filter'
 
 const SELECTION_RING_COLOR = 0xffffff
 const MIN_SCALE = 0.2
@@ -144,6 +145,8 @@ export const createScenePipeline = ({
   const placedTexts = [] // groups currently placed in the scene, for tap-to-select
 
   let liveScene = null
+  let liveCamera = null
+  const poseFilter = createPoseFilter()
   let selectedGroup = null
   let helpersVisible = true
   let drag = null // {touchId, plane, offset} while one finger drags selectedGroup
@@ -387,6 +390,7 @@ export const createScenePipeline = ({
       onStart: ({canvas}) => {
         const {scene, camera, renderer} = XR8.Threejs.xrScene()
         liveScene = scene
+        liveCamera = camera
 
         initXrScene({scene, camera, renderer})
 
@@ -527,8 +531,11 @@ export const createScenePipeline = ({
         canvas.addEventListener('touchcancel', endGesture, true)
       },
 
+      // Runs after XR8.Threejs's onUpdate has set this frame's camera pose (this module is added
+      // last), and before anything is rendered or hit-tested with it.
       onUpdate: () => {
         const now = nowSeconds()
+        poseFilter.apply(liveCamera, now)
         placedTexts.forEach((group) => {
           applyMotion(group, now)
           updateContactShadow(group)

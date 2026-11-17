@@ -17,6 +17,16 @@ export const MOTIONS = [
 
 export const PRESETS = [
   {
+    // The starting point: plain black gothic standing still on the ground.
+    id: 'plain',
+    label: 'Plain',
+    fontId: 'gothic',
+    colorId: 'black',
+    place: 'ground',
+    motion: 'static',
+    look: {depthRatio: 0.12, roughness: 0.45, metalness: 0, emissive: 0},
+  },
+  {
     id: 'pop',
     label: 'Pop',
     fontId: 'bold',
@@ -91,6 +101,6 @@ export const PRESETS = [
   },
 ]
 
-export const DEFAULT_PRESET_ID = 'pop'
+export const DEFAULT_PRESET_ID = 'plain'
 
 export const findPreset = (presetId) => PRESETS.find((p) => p.id === presetId) || PRESETS.find((p) => p.id === DEFAULT_PRESET_ID)
