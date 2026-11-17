@@ -1,16 +1,27 @@
-// 8th Wall XR Camera Pipeline Module: lets the user tap the ground to fix text in real space,
-// drag a placed text to move it, pinch to resize it, twist to rotate it, and grab a still frame
-// (or a per-frame hook, for video) of the composited camera + AR scene.
+// 8th Wall XR Camera Pipeline Module: lets the user tap to fix text in real space -- standing on
+// the ground or floating in the air (PLACE) -- drag a placed text to move it, pinch to resize it,
+// twist to rotate it, animates each text's MOTION, and grabs a still frame (or a per-frame hook,
+// for video) of the composited camera + AR scene.
 // XR8.XrController provides real 6DoF SLAM tracking, so text placed here stays anchored to the
 // physical location it was tapped on, including depth (distance from the camera) — unlike a
 // DeviceOrientation-only approach, which can only react to tilt, not real-world position.
 import * as THREE from 'three'
 
 import {createTextMesh} from './text-plane'
+import {prepareMotionMesh, restartMotion, applyMotion} from './motion'
 
 const SELECTION_RING_COLOR = 0xffffff
 const MIN_SCALE = 0.2
 const MAX_SCALE = 6
+// AIR placement: the text goes along the tapped direction, this far away (or at the ground hit
+// if that's nearer), with its bottom no lower than AIR_MIN_HEIGHT above the ground.
+const AIR_DISTANCE = 1.6 // meters
+const AIR_MIN_HEIGHT = 0.3
+const AIR_LIFT = 0.9 // height a GROUND text is raised to when switched to AIR
+const TEXT_HALF_HEIGHT = 0.2 // half of text-plane's TEXT_WORLD_HEIGHT, at scale 1
+
+const nowSeconds = () => performance.now() / 1000
+const UP = new THREE.Vector3(0, 1, 0)
 
 // A thin flat ring, sized to the selected text's footprint, added as a child of its group so it
 // automatically follows that group's position, rotation, and (importantly, for pinch resizing)
@@ -57,9 +68,9 @@ export const createScenePipeline = ({
   onScaleChange,
   onFrameRendered,
 }) => {
-  // Plane used both as the raycast target for tap placement/dragging and as a shadow-catcher:
-  // it's invisible except where a placed text object blocks the light, so text reads as sitting
-  // on the ground rather than floating.
+  // Shadow-catcher at ground level (y=0): it's invisible except where a placed text object blocks
+  // the light, so GROUND text reads as sitting on the ground and AIR text as hovering above it.
+  // (Taps and drags are resolved against mathematical planes instead; see dragPlaneFor.)
   const groundGeometry = new THREE.PlaneGeometry(2000, 2000)
   groundGeometry.rotateX(-Math.PI / 2)
   const groundMaterial = new THREE.ShadowMaterial()
@@ -69,16 +80,18 @@ export const createScenePipeline = ({
 
   const raycaster = new THREE.Raycaster()
   const pointer = new THREE.Vector2()
+  const heightPlane = new THREE.Plane()
   const placedTexts = [] // groups currently placed in the scene, for tap-to-select
 
   let liveScene = null
   let selectedGroup = null
   let helpersVisible = true
-  let drag = null // {touchId, offset} while one finger drags selectedGroup
+  let drag = null // {touchId, plane, offset} while one finger drags selectedGroup
   let pinch = null // {distance, angle, scale, rotationY} at the start of a two-finger gesture
 
-  // Each placed text is a group holding the text mesh (plus, while selected, the ring). The group
-  // carries the transform; the mesh can be swapped out when the text/font/color/style change.
+  // Each placed text is a group (the user's transform) holding a motion node (the animation, see
+  // motion.js) that holds the text mesh, plus, while selected, the ring. The mesh can be swapped
+  // out when the text/font/color/preset change.
   const buildTextMesh = async (options) => {
     const built = await createTextMesh(options.text, {
       fontId: options.fontId,
@@ -86,18 +99,22 @@ export const createScenePipeline = ({
       look: options.look,
     })
     const [mesh] = built.children
+    if (mesh) {
+      prepareMotionMesh(mesh)
+    }
     return mesh || null
   }
 
   const setTextMesh = (group, mesh) => {
+    const node = group.userData.motionNode
     const previous = group.userData.textMesh
     if (previous) {
-      group.remove(previous)
+      node.remove(previous)
       disposeMesh(previous)
     }
     group.userData.textMesh = mesh
     if (mesh) {
-      group.add(mesh)
+      node.add(mesh)
     }
   }
 
@@ -119,15 +136,22 @@ export const createScenePipeline = ({
     }
   }
 
-  const placeTextAt = async ({scene, camera}, point) => {
+  const placeTextAt = async ({scene, camera}, ray) => {
     const options = getPlacementOptions()
     if (!options) {
       onNeedText()
       return
     }
+    const point = placementPoint(ray, options)
+    if (!point) {
+      return // GROUND, tapped above the horizon
+    }
     const group = new THREE.Group()
+    group.userData.motionNode = new THREE.Group()
+    group.add(group.userData.motionNode)
     setTextMesh(group, await buildTextMesh(options))
     group.userData.options = options
+    restartMotion(group, nowSeconds())
     group.position.copy(point)
     group.scale.setScalar(options.size)
     // Stand upright facing the viewer: only the camera's heading is used, so text never tilts
@@ -139,6 +163,19 @@ export const createScenePipeline = ({
     placedTexts.push(group)
     select(group)
     onPlaced()
+  }
+
+  // Where a tap along `ray` puts a new text: on the ground where the ray meets it (GROUND), or in
+  // the air along the ray (AIR), centered on the tapped point.
+  const placementPoint = (ray, {place, size}) => {
+    const groundPoint = ray.intersectPlane(heightPlane.set(UP, 0), new THREE.Vector3())
+    if (place !== 'air') {
+      return groundPoint
+    }
+    const distance = groundPoint ? Math.min(ray.origin.distanceTo(groundPoint), AIR_DISTANCE) : AIR_DISTANCE
+    const point = ray.at(distance, new THREE.Vector3())
+    point.y = Math.max(point.y - TEXT_HALF_HEIGHT * size, AIR_MIN_HEIGHT)
+    return point
   }
 
   const deselect = () => {
@@ -169,7 +206,14 @@ export const createScenePipeline = ({
     if (!group) {
       return
     }
+    const previous = group.userData.options
     group.userData.options = options
+    if (options.place !== previous.place) {
+      group.position.y = options.place === 'air' ? Math.max(group.position.y, AIR_LIFT) : 0
+    }
+    if (options.motion !== previous.motion) {
+      restartMotion(group, nowSeconds())
+    }
     const token = Symbol('rebuild')
     group.userData.rebuildToken = token
     const mesh = await buildTextMesh(options)
@@ -206,6 +250,7 @@ export const createScenePipeline = ({
 
   const initXrScene = ({scene, camera, renderer}) => {
     renderer.shadowMap.enabled = true
+    renderer.localClippingEnabled = true // for MOTION: DRAW
     scene.add(ground)
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2)
@@ -255,12 +300,32 @@ export const createScenePipeline = ({
           {origin: camera.position, facing: camera.quaternion}
         )
 
-        const groundPointFromTouch = (touch) => {
+        const setRayFromTouch = (touch) => {
           pointer.x = (touch.clientX / window.innerWidth) * 2 - 1
           pointer.y = -(touch.clientY / window.innerHeight) * 2 + 1
           raycaster.setFromCamera(pointer, camera)
-          const [groundHit] = raycaster.intersectObject(ground)
-          return groundHit ? groundHit.point : null
+        }
+
+        // The surface a text slides along while dragged: the ground for a GROUND text; for an AIR
+        // text, an upright plane through it facing the camera, so it follows the finger up/down/
+        // left/right at its current distance (a horizontal plane near eye level would barely be
+        // hit by the touch ray).
+        const dragPlaneFor = (group) => {
+          if (group.userData.options.place !== 'air') {
+            return new THREE.Plane(UP.clone(), 0)
+          }
+          const facing = new THREE.Vector3()
+          camera.getWorldDirection(facing)
+          facing.y = 0
+          if (facing.lengthSq() < 1e-6) {
+            facing.set(0, 0, -1) // looking straight up/down: any upright plane will do
+          }
+          return new THREE.Plane().setFromNormalAndCoplanarPoint(facing.normalize().negate(), group.position)
+        }
+
+        const pointFromTouch = (touch, plane) => {
+          setRayFromTouch(touch)
+          return raycaster.ray.intersectPlane(plane, new THREE.Vector3())
         }
 
         const twoFingerMetrics = (touches) => {
@@ -288,12 +353,10 @@ export const createScenePipeline = ({
           }
 
           const touch = event.touches[0]
-          pointer.x = (touch.clientX / window.innerWidth) * 2 - 1
-          pointer.y = -(touch.clientY / window.innerHeight) * 2 + 1
-          raycaster.setFromCamera(pointer, camera)
+          setRayFromTouch(touch)
 
           // Touching a placed text selects it and starts dragging it straight away; touching
-          // empty ground either deselects, or -- if nothing is selected -- places a new text with
+          // empty space either deselects, or -- if nothing is selected -- places a new text with
           // the current settings.
           const [textHit] = raycaster.intersectObjects(placedTexts, true)
           if (textHit) {
@@ -302,9 +365,11 @@ export const createScenePipeline = ({
               hitGroup = hitGroup.parent
             }
             select(hitGroup)
-            const point = groundPointFromTouch(touch)
+            const plane = dragPlaneFor(hitGroup)
+            const point = pointFromTouch(touch, plane)
             drag = {
               touchId: touch.identifier,
+              plane,
               offset: point ? hitGroup.position.clone().sub(point) : new THREE.Vector3(),
             }
             return
@@ -315,10 +380,7 @@ export const createScenePipeline = ({
             return
           }
 
-          const point = groundPointFromTouch(touch)
-          if (point) {
-            await placeTextAt({scene, camera}, point)
-          }
+          await placeTextAt({scene, camera}, raycaster.ray.clone())
         }, true)
 
         canvas.addEventListener('touchmove', (event) => {
@@ -345,9 +407,12 @@ export const createScenePipeline = ({
           if (!touch) {
             return
           }
-          const point = groundPointFromTouch(touch)
+          const point = pointFromTouch(touch, drag.plane)
           if (point) {
             selectedGroup.position.copy(point.add(drag.offset))
+            if (selectedGroup.userData.options.place === 'air') {
+              selectedGroup.position.y = Math.max(selectedGroup.position.y, AIR_MIN_HEIGHT)
+            }
           }
         }, true)
 
@@ -366,6 +431,11 @@ export const createScenePipeline = ({
         }
         canvas.addEventListener('touchend', endGesture, true)
         canvas.addEventListener('touchcancel', endGesture, true)
+      },
+
+      onUpdate: () => {
+        const now = nowSeconds()
+        placedTexts.forEach((group) => applyMotion(group, now))
       },
 
       onRender: () => {

@@ -40,31 +40,43 @@
       </div>
 
       <nav id="toolbar" aria-label="ツール">
-        <button class="tool" type="button" data-tool="text" aria-label="文字入力">
-          <span class="tool-icon tool-icon-text">Aa</span><span class="tool-label">文字</span>
+        <button class="tool" type="button" data-tool="text" aria-label="TEXT 文字入力">
+          <span class="tool-icon tool-icon-text">Aa</span><span class="tool-label">TEXT</span>
         </button>
-        <button class="tool" type="button" data-tool="style" aria-label="スタイル">
+        <button class="tool" type="button" data-tool="preset" aria-label="PRESET プリセット">
           <span class="tool-icon">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg>
-          </span><span class="tool-label">スタイル</span>
+          </span><span class="tool-label">PRESET</span>
         </button>
-        <button class="tool" type="button" data-tool="font" aria-label="フォント">
-          <span class="tool-icon tool-icon-font" id="tool-font-preview">あ</span><span class="tool-label">フォント</span>
+        <button class="tool" type="button" data-tool="font" aria-label="FONT フォント">
+          <span class="tool-icon tool-icon-font"><span id="tool-font-preview">あ</span></span><span class="tool-label">FONT</span>
         </button>
-        <button class="tool" type="button" data-tool="color" aria-label="カラー">
-          <span class="tool-icon"><span id="tool-color-dot"></span></span><span class="tool-label">カラー</span>
+        <button class="tool" type="button" data-tool="color" aria-label="COLOR カラー">
+          <span class="tool-icon"><span id="tool-color-dot"></span></span><span class="tool-label">COLOR</span>
+        </button>
+        <button class="tool" type="button" data-tool="place" aria-label="PLACE 置き方">
+          <span class="tool-icon" id="tool-place-icon"></span><span class="tool-label">PLACE</span>
+        </button>
+        <button class="tool" type="button" data-tool="motion" aria-label="MOTION 動き">
+          <span class="tool-icon tool-icon-text"><span id="tool-motion-icon" class="motion-anim">A</span></span><span class="tool-label">MOTION</span>
         </button>
       </nav>
 
       <!-- Bottom sheets, one per tool; only one is open at a time. -->
-      <section class="sheet" data-sheet="style" hidden>
-        <div id="style-row" class="sheet-row" role="group" aria-label="スタイルを選択"></div>
+      <section class="sheet" data-sheet="preset" hidden>
+        <div id="preset-row" class="sheet-row" role="group" aria-label="プリセットを選択"></div>
       </section>
       <section class="sheet" data-sheet="font" hidden>
         <div id="font-row" class="sheet-row" role="group" aria-label="フォントを選択"></div>
       </section>
       <section class="sheet" data-sheet="color" hidden>
         <div id="color-row" class="sheet-row sheet-row-colors" role="group" aria-label="カラーを選択"></div>
+      </section>
+      <section class="sheet" data-sheet="place" hidden>
+        <div id="place-row" class="sheet-row sheet-row-even" role="group" aria-label="置き方を選択"></div>
+      </section>
+      <section class="sheet" data-sheet="motion" hidden>
+        <div id="motion-row" class="sheet-row sheet-row-even" role="group" aria-label="動きを選択"></div>
       </section>
 
       <div id="capture-bar">

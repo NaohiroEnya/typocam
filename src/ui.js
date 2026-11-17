@@ -3,11 +3,18 @@
 // nothing about 8th Wall or three.js; app.js connects its callbacks to the AR scene.
 import {FONTS, findFont} from './fonts'
 import {COLORS, findColor} from './colors'
-import {STYLES, findStyle} from './styles'
+import {PRESETS, PLACES, MOTIONS, findPreset} from './presets'
 
 const $ = (id) => document.getElementById(id)
 
 const FONT_SAMPLE = 'あア字Aa'
+const labelOf = (list, id) => (list.find((item) => item.id === id) || list[0]).label
+
+// Small line icons for PLACE: text standing on a ground line, or hovering over its shadow.
+const PLACE_ICONS = {
+  ground: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h10M12 5v12M3 19h18"/></svg>',
+  air: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10M12 3v10"/><ellipse cx="12" cy="20" rx="5" ry="1.5" stroke-dasharray="2 2"/><path d="M12 15.5v1.5" opacity=".6"/></svg>',
+}
 const sampleOf = (text, fallback, length = 6) => (text ? Array.from(text).slice(0, length).join('') : fallback)
 
 // Shows `el` in a font, squeezing it horizontally for the condensed face the same way the 3D
@@ -74,33 +81,46 @@ export const createUI = (handlers) => {
     }
   }
 
-  const optionCard = (button, label) => {
+  // A card with a preview sample on top and a label (plus an optional caption) below. The sample
+  // sits inside a wrapper so a MOTION animation (on the wrapper) and a condensed font's squeeze
+  // (on the sample) don't overwrite each other's transform.
+  const optionCard = (button, label, caption) => {
+    const stage = document.createElement('span')
+    stage.className = 'option-stage'
     const sample = document.createElement('span')
     sample.className = 'option-sample'
-    const caption = document.createElement('span')
-    caption.className = 'option-label'
-    caption.textContent = label
-    button.append(sample, caption)
-    return sample
+    stage.appendChild(sample)
+    const labelEl = document.createElement('span')
+    labelEl.className = 'option-label'
+    labelEl.textContent = label
+    button.append(stage, labelEl)
+    if (caption) {
+      const captionEl = document.createElement('span')
+      captionEl.className = 'option-caption'
+      captionEl.textContent = caption
+      button.appendChild(captionEl)
+    }
+    return {stage, sample}
   }
 
-  const styleSamples = []
-  const markStyle = buildOptionRow($('style-row'), STYLES, {
+  const presetSamples = []
+  const markPreset = buildOptionRow($('preset-row'), PRESETS, {
     className: 'option-card',
-    decorate: (button, style) => {
-      const sample = optionCard(button, style.label)
-      applyFont(sample, style.fontId)
-      applyColor(sample, style.colorId)
-      styleSamples.push(sample)
+    decorate: (button, preset) => {
+      const {stage, sample} = optionCard(button, preset.label, `${labelOf(PLACES, preset.place)} · ${labelOf(MOTIONS, preset.motion)}`)
+      stage.classList.add('motion-anim', `motion-${preset.motion}`)
+      applyFont(sample, preset.fontId)
+      applyColor(sample, preset.colorId)
+      presetSamples.push(sample)
     },
-    onSelect: (style) => handlers.onStyle(style.id),
+    onSelect: (preset) => handlers.onPreset(preset.id),
   })
 
   const fontSamples = []
   const markFont = buildOptionRow($('font-row'), FONTS, {
     className: 'option-card',
     decorate: (button, font) => {
-      const sample = optionCard(button, font.label)
+      const {sample} = optionCard(button, font.label)
       applyFont(sample, font.id)
       fontSamples.push(sample)
     },
@@ -117,22 +137,52 @@ export const createUI = (handlers) => {
     onSelect: (color) => handlers.onColor(color.id),
   })
 
+  const markPlace = buildOptionRow($('place-row'), PLACES, {
+    className: 'option-card option-card-wide',
+    decorate: (button, place) => {
+      const {sample} = optionCard(button, place.label, place.caption)
+      sample.classList.add('option-icon')
+      sample.innerHTML = PLACE_ICONS[place.id]
+    },
+    onSelect: (place) => handlers.onPlace(place.id),
+  })
+
+  const motionSamples = []
+  const markMotion = buildOptionRow($('motion-row'), MOTIONS, {
+    className: 'option-card option-card-wide',
+    decorate: (button, motion) => {
+      const {stage, sample} = optionCard(button, motion.label, motion.caption)
+      stage.classList.add('motion-anim', `motion-${motion.id}`)
+      motionSamples.push(sample)
+    },
+    onSelect: (motion) => handlers.onMotion(motion.id),
+  })
+
   // Reflects the current text settings everywhere they show: the selected option in each sheet,
   // the previews (which use the actual text being edited), and the toolbar's font/color icons.
   const render = (state) => {
     latestState = state
-    markStyle(state.styleId)
+    markPreset(state.presetId)
     markFont(state.fontId)
     markColor(state.colorId)
-    styleSamples.forEach((el) => {
+    markPlace(state.place)
+    markMotion(state.motion)
+    presetSamples.forEach((el) => {
       el.textContent = sampleOf(state.text, 'TYPO', 3)
     })
     fontSamples.forEach((el) => {
       el.textContent = sampleOf(state.text, FONT_SAMPLE, 4)
       applyColor(el, state.colorId)
     })
+    motionSamples.forEach((el) => {
+      el.textContent = sampleOf(state.text, 'Aa', 2)
+      applyFont(el, state.fontId)
+      applyColor(el, state.colorId)
+    })
     applyFont($('tool-font-preview'), state.fontId)
     $('tool-color-dot').style.backgroundColor = findColor(state.colorId).hex
+    $('tool-place-icon').innerHTML = PLACE_ICONS[state.place]
+    $('tool-motion-icon').className = `motion-anim motion-${state.motion}`
   }
 
   // ---------- Text editor ----------
@@ -299,7 +349,7 @@ export const createUI = (handlers) => {
   const recipe = $('recipe')
   $('recipe-open').addEventListener('click', () => {
     if (!latestState.text) {
-      toast('まず「文字」で言葉を入力してください')
+      toast('まずTEXTで言葉を入力してください')
       return
     }
     const preview = $('recipe-preview')
@@ -307,9 +357,11 @@ export const createUI = (handlers) => {
     applyFont(preview, latestState.fontId)
     applyColor(preview, latestState.colorId)
     $('recipe-meta').textContent = [
-      findStyle(latestState.styleId).label,
+      findPreset(latestState.presetId).label,
       findFont(latestState.fontId).label,
       findColor(latestState.colorId).label,
+      labelOf(PLACES, latestState.place),
+      labelOf(MOTIONS, latestState.motion),
       `サイズ ×${latestState.size.toFixed(1)}`,
     ].join(' · ')
     setOpenSheet(null)

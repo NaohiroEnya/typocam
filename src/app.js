@@ -7,7 +7,7 @@ import {createScenePipeline} from './scene'
 import {createRunRecorder} from './run-recorder'
 import {createUI} from './ui'
 import {findColor} from './colors'
-import {STYLES, DEFAULT_STYLE_ID, findStyle} from './styles'
+import {DEFAULT_PRESET_ID, findPreset} from './presets'
 import {recipeFromUrl, recipeToUrl, clampSize} from './recipe'
 
 window.THREE = THREE
@@ -16,13 +16,11 @@ const MAX_VIDEO_SECONDS = 60
 const CAPTURE_TIMEOUT_MS = 3000
 
 // The settings the next placed text gets -- and, while a text is selected, that text's settings.
-const defaultStyle = findStyle(DEFAULT_STYLE_ID)
+const presetSettings = ({id, fontId, colorId, place, motion}) => ({presetId: id, fontId, colorId, place, motion})
 const sharedRecipe = recipeFromUrl()
 const state = sharedRecipe || {
   text: '',
-  fontId: defaultStyle.fontId,
-  colorId: defaultStyle.colorId,
-  styleId: defaultStyle.id,
+  ...presetSettings(findPreset(DEFAULT_PRESET_ID)),
   size: 1,
 }
 
@@ -36,7 +34,7 @@ const getPlacementOptions = () => {
   return {
     ...state,
     color: findColor(state.colorId).hex,
-    look: findStyle(state.styleId).look,
+    look: findPreset(state.presetId).look,
   }
 }
 
@@ -169,9 +167,8 @@ const ui = createUI({
     state.text = text
     applyChange()
   },
-  onStyle: (styleId) => {
-    const style = STYLES.find((s) => s.id === styleId)
-    Object.assign(state, {styleId, fontId: style.fontId, colorId: style.colorId})
+  onPreset: (presetId) => {
+    Object.assign(state, presetSettings(findPreset(presetId)))
     applyChange()
   },
   onFont: (fontId) => {
@@ -180,6 +177,14 @@ const ui = createUI({
   },
   onColor: (colorId) => {
     state.colorId = colorId
+    applyChange()
+  },
+  onPlace: (place) => {
+    state.place = place
+    applyChange()
+  },
+  onMotion: (motion) => {
+    state.motion = motion
     applyChange()
   },
   onDelete: () => scene.deleteSelected(),
@@ -208,8 +213,8 @@ const scene = createScenePipeline({
     ui.setSelectionVisible(selected)
     if (options) {
       // Selecting a placed text loads its settings, so the tools edit that text.
-      const {text, fontId, colorId, styleId, size} = options
-      Object.assign(state, {text, fontId, colorId, styleId, size})
+      const {text, presetId, fontId, colorId, place, motion, size} = options
+      Object.assign(state, {text, presetId, fontId, colorId, place, motion, size})
       ui.render(state)
     }
   },
