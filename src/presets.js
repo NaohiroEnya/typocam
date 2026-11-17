@@ -17,14 +17,15 @@ export const MOTIONS = [
 
 export const PRESETS = [
   {
-    // The starting point: plain black gothic standing still on the ground.
+    // The starting point: plain white gothic, standing still in the air in front of the viewer
+    // (on the ground it lands wherever the tap meets the floor, often far away and tiny).
     id: 'plain',
     label: 'Plain',
     fontId: 'gothic',
-    colorId: 'black',
-    place: 'ground',
+    colorId: 'white',
+    place: 'air',
     motion: 'static',
-    look: {depthRatio: 0.12, roughness: 0.45, metalness: 0, emissive: 0},
+    look: {depthRatio: 0.12, roughness: 0.45, metalness: 0, emissive: 0.2},
   },
   {
     id: 'pop',

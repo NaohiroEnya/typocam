@@ -256,6 +256,11 @@ svg {
 
 /* ---------- Bottom sheets ---------- */
 
+#sheet-backdrop {
+  position: absolute;
+  inset: 0;
+}
+
 .sheet {
   position: absolute;
   left: calc(10px + var(--safe-left));
@@ -570,7 +575,6 @@ body.is-capturing #ui {
   line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.4);
 }
 
 #recipe-meta {

@@ -30,7 +30,6 @@ const applyFont = (el, fontId) => {
 const applyColor = (el, colorId) => {
   const {hex} = findColor(colorId)
   el.style.color = hex
-  el.style.textShadow = colorId === 'black' ? '0 0 6px rgba(255,255,255,0.85)' : ''
 }
 
 export const createUI = (handlers) => {
@@ -38,6 +37,7 @@ export const createUI = (handlers) => {
   const guide = $('guide')
   const toolButtons = Array.from(document.querySelectorAll('.tool'))
   const sheets = Array.from(document.querySelectorAll('.sheet'))
+  const sheetBackdrop = $('sheet-backdrop')
   let openSheet = null
   let latestState = null
 
@@ -45,6 +45,7 @@ export const createUI = (handlers) => {
 
   const setOpenSheet = (name) => {
     openSheet = name
+    sheetBackdrop.hidden = !name
     sheets.forEach((sheet) => {
       sheet.hidden = sheet.dataset.sheet !== name
     })
@@ -52,6 +53,15 @@ export const createUI = (handlers) => {
       button.classList.toggle('active', button.dataset.tool === name)
     })
   }
+
+  // Touching anywhere but the open sheet (or a tool button, which switches sheets itself) closes
+  // it. The backdrop covers the camera view while a sheet is open, so that touch doesn't also
+  // place a text.
+  document.addEventListener('pointerdown', (event) => {
+    if (openSheet && !event.target.closest('.sheet, .tool')) {
+      setOpenSheet(null)
+    }
+  }, true)
 
   toolButtons.forEach((button) => {
     button.addEventListener('click', () => {
