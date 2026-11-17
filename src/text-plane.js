@@ -16,8 +16,13 @@ const DEFAULT_LOOK = {
   depthRatio: 0.12, // extrusion depth, as a fraction of the text height
   roughness: 0.5,
   metalness: 0.05,
-  emissive: 0, // 0..1, how much the text glows in its own color
+  emissive: 0, // 0..1, how much the text's front face glows in its own color
 }
+// The sides (the extruded depth) are a darker shade of the face color and barely self-lit, so the
+// letter's thickness reads as a distinct, shaded edge instead of merging into the face.
+const SIDE_SHADE = 0.55
+const SIDE_EMISSIVE = 0.15 // fraction of the face's emissive the sides keep
+const BEVEL_SIZE = 0.006 // in ems: a hairline rounded edge that catches the light
 
 // Cached per font file (the condensed face shares the regular gothic's file).
 const fontPromises = new Map()
@@ -123,9 +128,13 @@ export const createTextMesh = async (text, {fontId = DEFAULT_FONT_ID, worldHeigh
   const emHeight = box.y2 - box.y1
   const scale = worldHeight / emHeight
 
+  const depth = emHeight * depthRatio
   const geometry = new THREE.ExtrudeGeometry(shapes, {
-    depth: emHeight * depthRatio,
-    bevelEnabled: false,
+    depth,
+    bevelEnabled: true,
+    bevelSize: BEVEL_SIZE,
+    bevelThickness: Math.min(BEVEL_SIZE * 1.5, depth * 0.25),
+    bevelSegments: 2,
   })
   // opentype.js paths are Y-down (like a canvas); flipping Y here both corrects that and applies
   // the em-units-to-meters scale (and the font's horizontal squeeze) in one step.
@@ -138,15 +147,24 @@ export const createTextMesh = async (text, {fontId = DEFAULT_FONT_ID, worldHeigh
     -(bounds.min.z + bounds.max.z) / 2
   )
 
-  const material = new THREE.MeshStandardMaterial({
+  // ExtrudeGeometry puts the front/back faces in group 0 and the sides (and bevel) in group 1.
+  const faceMaterial = new THREE.MeshStandardMaterial({
     color,
     roughness,
     metalness,
     emissive: color,
     emissiveIntensity: emissive,
   })
+  const sideColor = new THREE.Color(color).multiplyScalar(SIDE_SHADE)
+  const sideMaterial = new THREE.MeshStandardMaterial({
+    color: sideColor,
+    roughness: Math.min(1, roughness + 0.15),
+    metalness,
+    emissive: sideColor,
+    emissiveIntensity: emissive * SIDE_EMISSIVE,
+  })
 
-  const mesh = new THREE.Mesh(geometry, material)
+  const mesh = new THREE.Mesh(geometry, [faceMaterial, sideMaterial])
   mesh.castShadow = true
   mesh.receiveShadow = true
   group.add(mesh)

@@ -59,9 +59,12 @@ const drawProgress = (t) => {
 // away when not drawing) so switching motions never changes the material's shader.
 export const prepareMotionMesh = (mesh) => {
   const plane = new THREE.Plane(LEFT.clone(), NO_CLIP)
-  mesh.material.clippingPlanes = [plane]
-  mesh.material.clipShadows = true
+  mesh.userData.clipPlanes = [plane]
   mesh.userData.clipPlane = plane
+  ;[].concat(mesh.material).forEach((material) => {
+    material.clippingPlanes = mesh.userData.clipPlanes
+    material.clipShadows = true
+  })
 }
 
 // (Re)starts the group's motion from the beginning, e.g. right after it's placed.

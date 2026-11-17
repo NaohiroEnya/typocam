@@ -6,6 +6,7 @@
 // physical location it was tapped on, including depth (distance from the camera) — unlike a
 // DeviceOrientation-only approach, which can only react to tilt, not real-world position.
 import * as THREE from 'three'
+import {RoomEnvironment} from 'three/examples/jsm/environments/RoomEnvironment.js'
 
 import {createTextMesh} from './text-plane'
 import {prepareMotionMesh, restartMotion, applyMotion} from './motion'
@@ -50,7 +51,66 @@ const createSelectionRing = (group) => {
 
 const disposeMesh = (mesh) => {
   mesh.geometry.dispose()
-  mesh.material.dispose()
+  ;[].concat(mesh.material).forEach((material) => material.dispose())
+}
+
+// Soft dark ellipse on the ground under each text (ambient occlusion where it meets the floor),
+// which the sharp cast shadow alone doesn't give. One radial-gradient texture is shared by all.
+const CONTACT_OPACITY = 0.55
+const CONTACT_FADE_HEIGHT = 1.4 // meters above the ground at which it has fully faded out
+let contactTexture = null
+const getContactTexture = () => {
+  if (!contactTexture) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 128
+    canvas.height = 128
+    const ctx = canvas.getContext('2d')
+    const gradient = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+    gradient.addColorStop(0, 'rgba(0,0,0,1)')
+    gradient.addColorStop(0.45, 'rgba(0,0,0,0.6)')
+    gradient.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = gradient
+    ctx.fillRect(0, 0, 128, 128)
+    contactTexture = new THREE.CanvasTexture(canvas)
+  }
+  return contactTexture
+}
+
+const createContactShadow = (mesh) => {
+  const bounds = mesh.geometry.boundingBox
+  const width = (bounds.max.x - bounds.min.x) * 1.15 + 0.08
+  const depth = (bounds.max.z - bounds.min.z) + 0.16
+  const geometry = new THREE.PlaneGeometry(width, depth)
+  geometry.rotateX(-Math.PI / 2)
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    alphaMap: getContactTexture(),
+    transparent: true,
+    opacity: CONTACT_OPACITY,
+    depthWrite: false,
+    // Shares the text's DRAW clipping plane, so it's only under the part that's written out.
+    clippingPlanes: mesh.userData.clipPlanes,
+  })
+  const contact = new THREE.Mesh(geometry, material)
+  contact.renderOrder = 1
+  contact.raycast = () => {} // not tappable: taps on the ground below shouldn't select the text
+  return contact
+}
+
+// Keeps a group's contact shadow on the ground (world y=0) however high the text is, growing
+// and fading as it rises -- including during FLOAT / POP's bounce.
+const updateContactShadow = (group) => {
+  const contact = group.userData.contactShadow
+  if (!contact) {
+    return
+  }
+  const scale = group.scale.x
+  const height = Math.max(0, group.position.y + group.userData.motionNode.position.y * scale)
+  const k = Math.min(1, height / CONTACT_FADE_HEIGHT)
+  contact.position.y = (-group.position.y + 0.002) / scale
+  contact.scale.setScalar(1 + k * 0.8)
+  contact.material.opacity = CONTACT_OPACITY * (1 - k) ** 2
+  contact.visible = k < 1
 }
 
 // `getPlacementOptions` is called at the moment of each tap so the current text settings always
@@ -112,9 +172,18 @@ export const createScenePipeline = ({
       node.remove(previous)
       disposeMesh(previous)
     }
+    const previousContact = group.userData.contactShadow
+    if (previousContact) {
+      group.remove(previousContact)
+      disposeMesh(previousContact)
+      delete group.userData.contactShadow
+    }
     group.userData.textMesh = mesh
     if (mesh) {
       node.add(mesh)
+      group.userData.contactShadow = createContactShadow(mesh)
+      group.add(group.userData.contactShadow)
+      updateContactShadow(group)
     }
   }
 
@@ -250,13 +319,27 @@ export const createScenePipeline = ({
 
   const initXrScene = ({scene, camera, renderer}) => {
     renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.localClippingEnabled = true // for MOTION: DRAW
+    // Only affects three.js's own drawing; the camera feed is drawn by GlTextureRenderer.
+    renderer.toneMapping = THREE.NeutralToneMapping
     scene.add(ground)
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2)
+    // Image-based lighting from a generic indoor room: gives the text soft, direction-dependent
+    // shading on every face and something for glossy/metallic presets to reflect.
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environmentIntensity = 0.55
+    pmrem.dispose()
+
+    // Key light, fixed in the world so shadows stay put as the viewer walks around.
+    const directionalLight = new THREE.DirectionalLight(0xfff4e6, 1.6)
     directionalLight.position.set(3, 6, 4)
     directionalLight.castShadow = true
     directionalLight.shadow.mapSize.set(2048, 2048)
+    directionalLight.shadow.bias = -0.0005
+    directionalLight.shadow.normalBias = 0.01
+    directionalLight.shadow.radius = 3
     const shadowCam = directionalLight.shadow.camera
     shadowCam.left = -10
     shadowCam.right = 10
@@ -265,7 +348,18 @@ export const createScenePipeline = ({
     shadowCam.far = 30
     shadowCam.updateProjectionMatrix()
     scene.add(directionalLight)
-    scene.add(new THREE.AmbientLight(0xffffff, 0.7))
+    // Sky/ground bounce: tops of letters a touch brighter than their undersides.
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8478, 0.35))
+    // Weak fill from the viewer's side (follows the camera, casts no shadow), so a text seen from
+    // the far side of the key light still has a readable face.
+    const fill = new THREE.DirectionalLight(0xffffff, 0.35)
+    fill.position.set(-0.5, 0.5, 1)
+    camera.add(fill)
+    camera.add(fill.target)
+    fill.target.position.set(0, 0, -1)
+    if (!camera.parent) {
+      scene.add(camera)
+    }
 
     camera.position.set(0, 1.6, 2)
   }
@@ -435,7 +529,10 @@ export const createScenePipeline = ({
 
       onUpdate: () => {
         const now = nowSeconds()
-        placedTexts.forEach((group) => applyMotion(group, now))
+        placedTexts.forEach((group) => {
+          applyMotion(group, now)
+          updateContactShadow(group)
+        })
       },
 
       onRender: () => {

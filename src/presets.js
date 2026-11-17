@@ -1,8 +1,8 @@
 // Presets set the font, color, PLACE, and MOTION together, plus the 3D text's look (extrusion
 // depth and material). Each of font/color/place/motion can still be changed individually
-// afterwards; the look stays with the preset. A little `emissive` keeps light colors from
-// reading as grey under the scene's lighting, and metalness stays modest because the AR scene
-// has no environment map to reflect (fully metallic text would render nearly black).
+// afterwards; the look stays with the preset. `emissive` only lights the front face (the sides
+// stay shaded so the depth reads), and metalness stays modest because the scene's environment
+// map is a generic room, not the real surroundings, so strong reflections would look pasted on.
 export const PLACES = [
   {id: 'ground', label: 'GROUND', caption: '地面に置く'},
   {id: 'air', label: 'AIR', caption: '空中に浮かべる'},
